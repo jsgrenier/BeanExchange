@@ -59,9 +59,27 @@ Public Class RequestHandler
                 Await HandleCancelOrder(context)
             Case "/myorders"  '<-- ADD THIS
                 Await HandleGetMyOrders(context)
+            Case "/tokens"  '<-- ADD THIS CASE FOR /tokens endpoint
+                Await HandleGetTokens(context)
             Case Else
                 Await SendJsonResponse(context.Response, New With {.Error = "Not Found"}, HttpStatusCode.NotFound)
         End Select
+    End Function
+
+    Private Async Function HandleGetTokens(context As HttpListenerContext) As Task
+        Dim response As HttpListenerResponse = context.Response
+
+        Try
+            ' Get the token names from the Exchange.
+            Dim tokenNames As Dictionary(Of String, String) = _exchange.GetTokenNames()
+
+            ' Send the response.  We'll send the dictionary directly; it'll be serialized to JSON.
+            Await SendJsonResponse(response, tokenNames, HttpStatusCode.OK)
+
+        Catch ex As Exception
+            SendJsonResponse(response, New With {.Error = "Failed to retrieve tokens"}, HttpStatusCode.InternalServerError)
+            Console.WriteLine("Error in HandleGetTokens: " & ex.Message)
+        End Try
     End Function
 
     Private Async Function HandleCancelOrder(context As HttpListenerContext) As Task
@@ -356,7 +374,8 @@ Public Class RequestHandler
             .TokenSymbol = o.TokenSymbol,
             .IsBuyOrder = o.IsBuyOrder,
              .Quantity = o.Quantity,
-             .Price = o.Price
+             .Price = o.Price,
+             .Timestamp = o.Timestamp
         }).ToList()
             Await SendJsonResponse(response, orderData, HttpStatusCode.OK)
         Catch ex As Exception

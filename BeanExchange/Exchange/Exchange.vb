@@ -383,7 +383,7 @@ Function(t) t("name").ToString()
         Return (bestBuyOrder.Price + bestSellOrder.Price) / 2D
     End Function
 
-    ' New Method: PlaceOrder (MODIFIED)
+    '' New Method: PlaceOrder (MODIFIED)
     Public Function PlaceOrder(userId As Integer, tokenSymbol As String, isBuyOrder As Boolean, quantity As Decimal, price As Decimal?) As Guid
         'Basic Validations
         If quantity <= 0 Then
@@ -431,8 +431,11 @@ Function(t) t("name").ToString()
         End If
         ' --- END BALANCE CHECK ---
 
-        ' Create the Order object
-        Dim order As New Order(userId, tokenSymbol, isBuyOrder, quantity, orderPrice)
+        ' Create the Order object - ***CORRECT TIMESTAMP HERE***
+        Dim order As New Order(userId, tokenSymbol, isBuyOrder, quantity, orderPrice) With {
+            .Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+        }
+
 
         If isBuyOrder Then
             ' Add to buy orders
