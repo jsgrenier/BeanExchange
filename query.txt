@@ -1,0 +1,78 @@
+curl -X POST -H "Content-Type: application/json" -d "{\"username\": \"testuser\", \"password\": \"P@$$wOrd\"}" http://localhost:7070/register
+curl -X POST -H "Content-Type: application/json" -d "{\"username\": \"testuser2\", \"password\": \"P@$$wOrd\"}" http://localhost:7070/register
+curl -X POST -H "Content-Type: application/json" -d "{\"username\": \"testuser3\", \"password\": \"P@$$wOrd\"}" http://localhost:7070/register
+curl -X POST -H "Content-Type: application/json" -d "{\"username\": \"testuser4\", \"password\": \"P@$$wOrd\"}" http://localhost:7070/register
+
+curl -X POST -H "Content-Type: application/json" -d "{\"username\": \"testuser\", \"password\": \"P@$$wOrd\"}" http://localhost:7070/login
+curl -X POST -H "Content-Type: application/json" -d "{\"username\": \"testuser2\", \"password\": \"P@$$wOrd\"}" http://localhost:7070/login
+curl -X POST -H "Content-Type: application/json" -d "{\"username\": \"testuser3\", \"password\": \"P@$$wOrd\"}" http://localhost:7070/login
+curl -X POST -H "Content-Type: application/json" -d "{\"username\": \"testuser4\", \"password\": \"P@$$wOrd\"}" http://localhost:7070/login
+
+curl -X GET -H "X-API-Key: EwKp0MW2q/w/4fLXEmDczbeu8FkeKUbkqFdWVLsio28=" http://localhost:7070/deposit
+curl -X GET -H "X-API-Key: 2NcywlGZxOm27iMWJMpOcCoYA/U6MK4BSVmOzSd3/Y4=" http://localhost:7070/deposit
+curl -X GET -H "X-API-Key: iKtwSAcXQcD/ryDku1+d0niUuhW1KNM0OjT64du0q80=" http://localhost:7070/deposit
+curl -X GET -H "X-API-Key: jJ+332M3yPkRmho2FKitXV5AfWjL0tDvXGQWRvjFCqk=" http://localhost:7070/deposit
+
+curl -X GET -H "X-API-Key: EwKp0MW2q/w/4fLXEmDczbeu8FkeKUbkqFdWVLsio28=" http://localhost:7070/balance
+curl -X GET -H "X-API-Key: 2NcywlGZxOm27iMWJMpOcCoYA/U6MK4BSVmOzSd3/Y4=" http://localhost:7070/balance
+curl -X GET -H "X-API-Key: iKtwSAcXQcD/ryDku1+d0niUuhW1KNM0OjT64du0q80=" http://localhost:7070/balance
+curl -X GET -H "X-API-Key: jJ+332M3yPkRmho2FKitXV5AfWjL0tDvXGQWRvjFCqk=" http://localhost:7070/balance
+
+
+'WITHDRAW TOKENS
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: EwKp0MW2q/w/4fLXEmDczbeu8FkeKUbkqFdWVLsio28=" -d "{\"asset\": \"USD\", \"amount\": 5000, \"address\": \"Ao+ruY7GUiEL6SqAYnR1TMEnkAEam6bN9cuoUsgbew5o\"}" http://localhost:7070/withdraw
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: 2NcywlGZxOm27iMWJMpOcCoYA/U6MK4BSVmOzSd3/Y4=" -d "{\"asset\": \"USD\", \"amount\": 5000, \"address\": \"Ao+ruY7GUiEL6SqAYnR1TMEnkAEam6bN9cuoUsgbew5o\"}" http://localhost:7070/withdraw
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: iKtwSAcXQcD/ryDku1+d0niUuhW1KNM0OjT64du0q80=" -d "{\"asset\": \"USD\", \"amount\": 5000, \"address\": \"Ao+ruY7GUiEL6SqAYnR1TMEnkAEam6bN9cuoUsgbew5o\"}" http://localhost:7070/withdraw
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: jJ+332M3yPkRmho2FKitXV5AfWjL0tDvXGQWRvjFCqk=" -d "{\"asset\": \"USD\", \"amount\": 5000, \"address\": \"Ao+ruY7GUiEL6SqAYnR1TMEnkAEam6bN9cuoUsgbew5o\"}" http://localhost:7070/withdraw
+
+
+'BUY TOKEN WITH A DEFINED PRICE
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: EwKp0MW2q/w/4fLXEmDczbeu8FkeKUbkqFdWVLsio28=" -d "{\"TokenSymbol\": \"BTC\", \"IsBuyOrder\": true, \"Quantity\": 10, \"Price\": 10}" http://localhost:7070/placeorder
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: 2NcywlGZxOm27iMWJMpOcCoYA/U6MK4BSVmOzSd3/Y4=" -d "{\"TokenSymbol\": \"BTC\", \"IsBuyOrder\": true, \"Quantity\": 5, \"Price\": 10.5}" http://localhost:7070/placeorder
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: iKtwSAcXQcD/ryDku1+d0niUuhW1KNM0OjT64du0q80=" -d "{\"TokenSymbol\": \"BTC\", \"IsBuyOrder\": true, \"Quantity\": 2, \"Price\": 10.8}" http://localhost:7070/placeorder
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: jJ+332M3yPkRmho2FKitXV5AfWjL0tDvXGQWRvjFCqk=" -d "{\"TokenSymbol\": \"BTC\", \"IsBuyOrder\": true, \"Quantity\": 5, \"Price\": 10.5}" http://localhost:7070/placeorder
+
+
+'SELL TOKEN WITH DEFINED PRICE
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: EwKp0MW2q/w/4fLXEmDczbeu8FkeKUbkqFdWVLsio28=" -d "{\"TokenSymbol\": \"BTC\", \"IsBuyOrder\": false, \"Quantity\": 8, \"Price\": 11}" http://localhost:7070/placeorder
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: 2NcywlGZxOm27iMWJMpOcCoYA/U6MK4BSVmOzSd3/Y4=" -d "{\"TokenSymbol\": \"BTC\", \"IsBuyOrder\": false, \"Quantity\": 12, \"Price\": 10.8}" http://localhost:7070/placeorder
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: iKtwSAcXQcD/ryDku1+d0niUuhW1KNM0OjT64du0q80=" -d "{\"TokenSymbol\": \"BTC\", \"IsBuyOrder\": false, \"Quantity\": 10, \"Price\": 100}" http://localhost:7070/placeorder
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: jJ+332M3yPkRmho2FKitXV5AfWjL0tDvXGQWRvjFCqk=" -d "{\"TokenSymbol\": \"BTC\", \"IsBuyOrder\": false, \"Quantity\": 10, \"Price\": 100}" http://localhost:7070/placeorder
+
+
+'TO CANCEL AN ORDER
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: jJ+332M3yPkRmho2FKitXV5AfWjL0tDvXGQWRvjFCqk=" -d "{\"OrderId\": \"e747940c-e689-4e7f-b20f-f5b87634b754\"}" http://localhost:7070/cancelorder
+
+'TO SHOW YOUR ORDERS
+curl -X GET -H "X-API-Key: EwKp0MW2q/w/4fLXEmDczbeu8FkeKUbkqFdWVLsio28=" http://localhost:7070/myorders
+curl -X GET -H "X-API-Key: 2NcywlGZxOm27iMWJMpOcCoYA/U6MK4BSVmOzSd3/Y4=" http://localhost:7070/myorders
+curl -X GET -H "X-API-Key: iKtwSAcXQcD/ryDku1+d0niUuhW1KNM0OjT64du0q80=" http://localhost:7070/myorders
+curl -X GET -H "X-API-Key: jJ+332M3yPkRmho2FKitXV5AfWjL0tDvXGQWRvjFCqk=" http://localhost:7070/myorders
+
+'TO SHOW ALL ORDERS
+curl http://localhost:7070/orders
+
+curl -X POST -H "Content-Type: application/json" -d "{\"tokenSymbol\": \"BTC\"}" http://localhost:7070/getprice
+
+-------------------------------
+Users funds wallet:
+Public key: A1DxIgtmI8yEswHgE8Gkgf5kCrhOlNUsJP4U5ecR9Eo5
+Private key: pOAQ6Y7b0lLjdgcKvp0ekPCXcC2bQQp/lmE2cJ5YE4k=
+-------------------------------
+-------------------------------
+Reserve wallet:
+Public key: A/nO2+uaY5rrQvoVqDcmurpJN0hSKAp09DA3aQA6bqck
+Private key: VpZTBCuIixrVC40aV11wIAJCBPN9US1s5Skdwjsx76E=
+-------------------------------
+
+'BUY TOKEN WITH NO DEFINE PRICE (SHOULD BE REMOVED)
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: EwKp0MW2q/w/4fLXEmDczbeu8FkeKUbkqFdWVLsio28=" -d "{\"TokenSymbol\": \"BTC\", \"IsBuyOrder\": true, \"Quantity\": 10}" http://localhost:7070/placeorder
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: 2NcywlGZxOm27iMWJMpOcCoYA/U6MK4BSVmOzSd3/Y4=" -d "{\"TokenSymbol\": \"BTC\", \"IsBuyOrder\": true, \"Quantity\": 10}" http://localhost:7070/placeorder
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: iKtwSAcXQcD/ryDku1+d0niUuhW1KNM0OjT64du0q80=" -d "{\"TokenSymbol\": \"BTC\", \"IsBuyOrder\": true, \"Quantity\": 10}" http://localhost:7070/placeorder
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: jJ+332M3yPkRmho2FKitXV5AfWjL0tDvXGQWRvjFCqk=" -d "{\"TokenSymbol\": \"BTC\", \"IsBuyOrder\": true, \"Quantity\": 10}" http://localhost:7070/placeorder
+
+'SELL TOKEN WITH NO DEFINE PRICE (SHOULD BE REMOVED)
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: EwKp0MW2q/w/4fLXEmDczbeu8FkeKUbkqFdWVLsio28=" -d "{\"TokenSymbol\": \"BTC\", \"IsBuyOrder\": false, \"Quantity\": 10}" http://localhost:7070/placeorder
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: 2NcywlGZxOm27iMWJMpOcCoYA/U6MK4BSVmOzSd3/Y4=" -d "{\"TokenSymbol\": \"BTC\", \"IsBuyOrder\": false, \"Quantity\": 0.5}" http://localhost:7070/placeorder
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: iKtwSAcXQcD/ryDku1+d0niUuhW1KNM0OjT64du0q80=" -d "{\"TokenSymbol\": \"BTC\", \"IsBuyOrder\": false, \"Quantity\": 10}" http://localhost:7070/placeorder
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: jJ+332M3yPkRmho2FKitXV5AfWjL0tDvXGQWRvjFCqk=" -d "{\"TokenSymbol\": \"BTC\", \"IsBuyOrder\": false, \"Quantity\": 0.5}" http://localhost:7070/placeorder

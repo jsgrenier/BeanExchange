@@ -1,0 +1,55 @@
+-------------Step 1---------------
+
+Exchange should have two wallets
+1. Hold users funds
+2. Hold exchange reserve
+
+When the exchange is first generated, the two wallets should be created and outputed in the CLI (public and private key) to ease future 
+managements
+
+Example:
+-------------------------------
+Users funds wallet:
+Public key: xxxxxxxxxxx
+Private key: xxxxxxxxxxxx
+-------------------------------
+Reserve wallet:
+Public key: xxxxxxxxxxxxxx
+Private key: xxxxxxxxxxxxxx
+-------------------------------
+
+Exchange server started. Press Enter to exit.
+
+-------------Step 2---------------
+
+In the CLI, there should be a menu with multiple options for the exchange. 
+
+Example:
+-------------------------------
+Please select an option:
+1. Show wallets balance (Will show the current balance of each token for the Users funds wallet and Reserve wallet)
+2. Register a token in reserve (Exchange will need to specify the token SYMBOL and the starting price (in USD), if symbol is not found in reserve, it will be denied)
+3. Show registered tokens prices (will show the
+4. Shutdown exchange (will terminate the exchange app)
+-------------------------------
+
+When the token is successfully registered, the symbol is available to trade within the exchange. 
+If the token is not registered in the reserve, users will still be able to receive/withdraw the token, they will just not be able to trade it
+on the exchange.
+
+The main token should be USD by default.
+
+-------------Step 3---------------
+
+Every transactions should be in USD/TOKEN for buy or TOKEN/USD for sell
+example:
+if BTC is listed at 20000 USD user will only be able to buy it with USD.
+
+User can sell their BTC
+
+When a user buys X token, if there's not enough in the order book, the missing tokens should be bought at the same price, from the exchange
+reserve.
+
+Each token base price will be updated after each transactions. The base price will be updated in consideration of the completed sell offers and
+completed buy offers by taking the available quantity in reserve and offers in account. (If a better algorithm is possible lets go for it)
+

@@ -1,0 +1,341 @@
+Imports System
+Imports System.Collections.Generic
+Imports System.Threading
+Imports System.Threading.Tasks
+Imports System.Net
+Imports Newtonsoft.Json.Linq
+Imports Microsoft.Data.Sqlite
+Imports System.Security.Cryptography
+
+Public Class Exchange
+    Implements IDisposable
+
+    Public ReadOnly _apiKeys As Dictionary(Of String, Integer) = New Dictionary(Of String, Integer)
+    Private ReadOnly _connectionString As String = "Data Source=exchange.db;"
+    Private ReadOnly _databaseManager As DatabaseManager
+    Private ReadOnly _apiClient As APIClient
+
+    Private _monitoringTask As Task
+    Private _cts As CancellationTokenSource
+
+    Public Sub New(databaseManager As DatabaseManager, apiClient As APIClient)
+        _databaseManager = databaseManager
+        _apiClient = apiClient
+
+        _databaseManager.CreateDatabaseIfNotExist()
+        LoadApiKeys()
+        _cts = New CancellationTokenSource()
+        StartMonitoring()
+    End Sub
+
+    Private Sub StartMonitoring()
+        _monitoringTask = Task.Run(Sub()
+                                       While Not _cts.IsCancellationRequested
+                                           MonitorBalances()
+                                           Task.Delay(TimeSpan.FromSeconds(10)).Wait()
+                                       End While
+                                   End Sub)
+    End Sub
+
+    Private Sub MonitorBalances()
+        Dim depositAddresses As List(Of String) = _databaseManager.GetAllDepositAddresses()
+        Dim tokenNames As Dictionary(Of String, String) = GetTokenNames()
+
+        For Each address In depositAddresses
+            For Each tokenSymbol In tokenNames.Keys
+                HandleDepositAddress(address, tokenSymbol)
+            Next
+        Next
+    End Sub
+
+    Private Sub HandleDepositAddress(address As String, tokenSymbol As String)
+        Dim balance As Decimal = GetBalanceForAddress(address, tokenSymbol)
+        If balance > 0 Then
+            TransferTokensToExchange(address, tokenSymbol, balance)
+        End If
+    End Sub
+
+    Private Function GetBalanceForAddress(address As String, tokenSymbol As String) As Decimal
+        Dim encodedPublicKey As String = WebUtility.UrlEncode(address)
+        Dim jsonObject As JObject = _apiClient.GettAsync("/get_tokens_owned", New Dictionary(Of String, String) From {{"address", encodedPublicKey}}).Result
+        Return GetBalanceFromBlockchainResponse(jsonObject, tokenSymbol)
+    End Function
+
+    Private Sub TransferTokensToExchange(address As String, tokenSymbol As String, balance As Decimal)
+        Dim userId As Integer = _databaseManager.GetUserIdFromDepositAddress(address)
+        Dim exchangeLedgerAddress As String = _databaseManager.GetExchangeWalletAddress()
+        Dim privateKey As String = GetPrivateKeyForAddress(address)
+        Dim transactionHash As String = CreateBlockchainTransaction(privateKey, tokenSymbol, balance, exchangeLedgerAddress)
+
+        If Not String.IsNullOrEmpty(transactionHash) Then
+            UpdateUserBalance(userId, tokenSymbol, balance) ' Call UpdateUserBalance here
+            Console.WriteLine($"Transferred {balance} {tokenSymbol} from {address} to exchange ledger. Transaction hash: {transactionHash}")
+        Else
+            Console.WriteLine($"Failed to transfer tokens from {address} to exchange ledger.")
+        End If
+    End Sub
+
+    Private Function GetPrivateKeyForAddress(depositAddress As String) As String
+        Dim encryptedPrivateKey As String = _databaseManager.GetEncryptedPrivateKey(depositAddress)
+        Dim iv As String = _databaseManager.GetPrivateKeyIV(depositAddress)
+        Return WalletHandler.DecryptPrivateKey(encryptedPrivateKey, iv, "112233") ' Replace with your actual encryption key
+    End Function
+
+    Public Function RegisterUser(registrationData As RegistrationData) As (Integer, String)
+        Using connection As New SqliteConnection(_connectionString) ' Create and open the connection here
+            connection.Open()
+
+            Try
+                If registrationData Is Nothing OrElse String.IsNullOrEmpty(registrationData.Username) OrElse String.IsNullOrEmpty(registrationData.Password) Then
+                    Console.WriteLine("Invalid registration data: Username or password is missing.")
+                    Return (-1, "")
+                End If
+
+                If _databaseManager.UserExists(registrationData.Username) Then  ' Pass the connection
+                    Console.WriteLine("Username already exists: " & registrationData.Username)
+                    Return (-1, "")
+                End If
+
+                Dim userId As Integer = _databaseManager.CreateUser(registrationData) ' Pass the connection
+                Dim apiKey As String = GenerateApiKey() ' Generate the API Key
+                _apiKeys.Add(apiKey, userId)
+                _databaseManager.StoreApiKey(userId, apiKey) ' Pass the connection here!
+
+                Console.WriteLine("User registered successfully. userId: " & userId & ", apiKey: " & apiKey)
+
+                GenerateDepositAddress(userId)
+                Return (userId, apiKey)
+
+            Catch ex As Exception
+                Console.WriteLine("Error in RegisterUser: " & ex.Message)
+                Return (-1, "")
+            End Try
+        End Using ' The "Using" block ensures the connection is closed automatically
+    End Function
+
+    Public Function LoginUser(loginData As LoginData) As (Integer, String)
+        Using connection As New SqliteConnection(_connectionString)
+            connection.Open()
+            Using command As New SqliteCommand("SELECT UserId, PasswordHash FROM Users WHERE Username = @Username", connection)
+                command.Parameters.AddWithValue("@Username", loginData.Username)
+
+                Using reader As SqliteDataReader = command.ExecuteReader()
+                    If reader.Read() Then
+                        Dim userId As Integer = reader.GetInt32(0)
+                        Dim storedHash As String = reader.GetString(1)
+
+                        If WalletHandler.VerifyPassword(loginData.Password, storedHash) Then
+                            ' Retrieve existing API Key
+                            Dim apiKey As String = _databaseManager.GetApiKey(userId)
+
+                            If String.IsNullOrEmpty(apiKey) Then
+                                ' Generate a new key (this should only happen if there was a problem)
+                                apiKey = GenerateApiKey()
+                                _databaseManager.StoreApiKey(userId, apiKey) ' Store it in the database
+                            End If
+
+                            ' Check if the key is already in the dictionary before adding it
+                            If Not _apiKeys.ContainsKey(apiKey) Then
+                                _apiKeys.Add(apiKey, userId) ' Add to the in-memory dictionary ONLY if not already there
+                            End If
+
+                            Return (userId, apiKey)
+                        Else
+                            Console.WriteLine("Incorrect password for user: " & loginData.Username)
+                            Return (-1, "")
+                        End If
+                    Else
+                        Console.WriteLine("User not found: " & loginData.Username)
+                        Return (-1, "")
+                    End If
+                End Using
+            End Using
+        End Using
+        Return (-1, "")
+    End Function
+
+    Public Function GetBalance(userId As Integer, asset As String) As Decimal
+        Return _databaseManager.GetUserBalance(userId, asset)
+    End Function
+
+    Public Async Function Withdraw(userId As Integer, withdrawalData As WithdrawalData) As Task(Of Boolean)
+        ' 1. Validate withdrawal data
+        If withdrawalData.Amount <= 0 Then Return False
+
+        ' 2. Check user's balance in the database
+        Dim balance As Decimal = GetBalance(userId, withdrawalData.Asset)
+        If balance < withdrawalData.Amount Then Return False ' Insufficient balance
+
+        ' 3. Update user's balance in the database (subtract withdrawal amount)
+        _databaseManager.UpdateBalance(userId, withdrawalData.Asset, balance - withdrawalData.Amount)
+
+        ' 4. Get exchange wallet's private key and perform the transfer
+        Dim exchangePrivateKey As String = _databaseManager.GetExchangePrivateKey() ' Get the exchange's private key
+        Dim transactionHash As String = CreateBlockchainTransaction(exchangePrivateKey, withdrawalData.Asset, withdrawalData.Amount, withdrawalData.Address)
+
+        If String.IsNullOrEmpty(transactionHash) Then
+            Return False ' Transaction failed
+        End If
+
+        Return True ' Withdrawal successful
+    End Function
+
+    Public Function GetTokensOwned(userId As Integer) As Dictionary(Of String, Decimal)
+        Dim tokensOwned As New Dictionary(Of String, Decimal)
+        ' (Implementation to query your database and populate tokensOwned)
+        Return tokensOwned
+    End Function
+
+    Public Function GetTokenNames() As Dictionary(Of String, String)
+        Dim tokenNames As New Dictionary(Of String, String)
+
+        ' 1. Retrieve token names from your blockchain
+        Dim tokenNamesToken As JToken = _apiClient.GettAsync("/get_token_names").Result
+
+        If tokenNamesToken.Type = JTokenType.Array Then
+            ' Parse the token names from the response
+            tokenNames = tokenNamesToken.ToObject(Of JArray)().ToDictionary(
+                Function(t) t("symbol").ToString(),
+                Function(t) t("name").ToString()
+            )
+        Else
+            ' Handle the case where the response is not an array
+            Console.WriteLine("API response for /get_token_names is not a valid array.")
+            ' You might want to throw an exception or return an empty dictionary here
+        End If
+
+        Return tokenNames
+    End Function
+
+    Private Function CreateBlockchainTransaction(privateKey As String, asset As String, amount As Decimal, toAddress As String) As String
+        Console.WriteLine("Starting CreateBlockchainTransaction...") ' Log start
+        Console.WriteLine($"Private Key (truncated): {privateKey.Substring(0, 10)}...") ' Log part of private key (for debugging)
+        Console.WriteLine($"Asset: {asset}, Amount: {amount}, To Address: {toAddress}") ' Log parameters
+
+        Try
+            Dim publicKey = WalletHandler.GetPublicKeyFromPrivateKey(privateKey)
+            Console.WriteLine($"Public Key: {publicKey}") ' Log public key
+
+            Dim transactionData As String = $"{publicKey}:{toAddress}:{amount}:{asset}"
+            Console.WriteLine($"Transaction Data: {transactionData}") ' Log transaction data
+
+            Dim signature As String = WalletHandler.SignTransaction(privateKey, transactionData)
+            Console.WriteLine($"Signature (truncated): {signature.Substring(0, 10)}...") ' Log signature
+
+            Console.WriteLine("Calling TransferTokensAsync...") ' Log before API call
+            Dim response = _apiClient.TransferTokensAsync(publicKey, toAddress, amount, asset, signature).Result
+            Console.WriteLine($"TransferTokensAsync Response: {response.ToString()}") ' Log the entire response
+
+            Return response("txId").ToString()
+
+        Catch ex As Exception
+            Console.WriteLine($"Error in CreateBlockchainTransaction: {ex.Message}") ' Log exceptions
+            Return String.Empty ' Return empty string on error
+        End Try
+    End Function
+
+    Public Function GetDepositAddress(userId As Integer) As String
+        ' 1. Check if a deposit address already exists for the user
+        Dim existingAddress As String = _databaseManager.GetDepositAddress(userId)
+        If Not String.IsNullOrEmpty(existingAddress) Then
+            Return existingAddress
+        End If
+
+        ' 2. If no address exists, generate one
+        Return GenerateDepositAddress(userId)
+    End Function
+
+    ' Helper function to get balance from blockchain API response
+    Private Function GetBalanceFromBlockchainResponse(jsonObject As JObject, asset As String) As Decimal
+        If jsonObject Is Nothing OrElse jsonObject("tokensOwned") Is Nothing OrElse jsonObject("tokensOwned")(asset) Is Nothing Then
+            Return 0
+        End If
+        Return jsonObject("tokensOwned")(asset).ToObject(Of Decimal)()
+    End Function
+
+    Private Function GenerateApiKey() As String
+        Dim keyBytes(31) As Byte ' Create a byte array of size 32
+        RandomNumberGenerator.Create.GetBytes(keyBytes) ' Fill the array with random bytes
+        Return Convert.ToBase64String(keyBytes)
+    End Function
+
+    Private Function GenerateDepositAddress(userId As Integer) As String
+        ' Generate a new wallet (key pair)
+        Dim wallet As Tuple(Of String, String) = WalletHandler.GenerateWallet()
+        Dim publicKey As String = wallet.Item1
+        Dim privateKey As String = wallet.Item2
+
+        ' Encrypt the private key
+        Dim encryptedKeyAndIV As Tuple(Of String, String) = WalletHandler.EncryptPrivateKey(privateKey, "112233") ' Replace with your actual encryption key
+        Dim encryptedPrivateKey As String = encryptedKeyAndIV.Item1
+        Dim iv As String = encryptedKeyAndIV.Item2
+
+        ' Store the address and encrypted private key in the database
+        _databaseManager.StoreDepositAddress(userId, publicKey, encryptedPrivateKey, iv)
+
+        Return publicKey
+    End Function
+
+    Private Sub LoadApiKeys()
+        Using connection As New SqliteConnection(_connectionString)
+            connection.Open()
+            Using command As New SqliteCommand("SELECT UserId, ApiKey FROM ApiKeys", connection)
+                Using reader As SqliteDataReader = command.ExecuteReader()
+                    While reader.Read()
+                        Dim userId As Integer = reader.GetInt32(0)
+                        Dim apiKey As String = reader.GetString(1)
+                        _apiKeys.Add(apiKey, userId)
+                    End While
+                End Using
+            End Using
+        End Using
+    End Sub
+
+    ' Update the user's balance in the database
+    Private Sub UpdateUserBalance(userId As Integer, tokenSymbol As String, amount As Decimal)
+        Using connection As New SqliteConnection(_connectionString)
+            connection.Open()
+            Using transaction As SqliteTransaction = connection.BeginTransaction()
+                Try
+                    ' 1. Get the current balance from the database
+                    Dim currentBalance As Decimal = GetBalance(userId, tokenSymbol)
+
+                    ' 2. Calculate the new balance
+                    Dim newBalance As Decimal = currentBalance + amount
+
+                    ' 3. Update the balance in the database
+                    UpdateBalanceInDatabase(userId, tokenSymbol, newBalance, connection, transaction)
+
+                    transaction.Commit()
+                Catch ex As Exception
+                    transaction.Rollback()
+                    Console.WriteLine($"Error updating user balance: {ex.Message}")
+                End Try
+            End Using
+        End Using
+    End Sub
+
+    Private Sub UpdateBalanceInDatabase(userId As Integer, asset As String, balance As Decimal, connection As SqliteConnection, transaction As SqliteTransaction)
+        Using command As New SqliteCommand("UPDATE Balances SET Balance = @Balance WHERE UserId = @UserId AND Asset = @Asset", connection, transaction)
+            command.Parameters.AddWithValue("@Balance", balance)
+            command.Parameters.AddWithValue("@UserId", userId)
+            command.Parameters.AddWithValue("@Asset", asset)
+            Dim rowsAffected As Integer = command.ExecuteNonQuery()
+
+            If rowsAffected = 0 Then
+                Using insertCommand As New SqliteCommand("INSERT INTO Balances (UserId, Asset, Balance) VALUES (@UserId, @Asset, @Balance)", connection, transaction)
+                    insertCommand.Parameters.AddWithValue("@UserId", userId)
+                    insertCommand.Parameters.AddWithValue("@Asset", asset)
+                    insertCommand.Parameters.AddWithValue("@Balance", balance)
+                    insertCommand.ExecuteNonQuery()
+                End Using
+            End If
+        End Using
+    End Sub
+
+
+    Public Sub Dispose() Implements IDisposable.Dispose
+        _cts.Cancel()
+        _monitoringTask.Wait()
+    End Sub
+End Class

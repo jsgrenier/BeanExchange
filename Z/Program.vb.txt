@@ -1,0 +1,51 @@
+Imports System
+Imports System.Net
+Imports System.Threading
+
+Module Program
+    Sub Main(args As String())
+
+        ' Create instances of DatabaseManager and APIClient
+        Dim databaseManager As New DatabaseManager("Data Source=exchange.db;")
+        Dim apiClient As New APIClient()
+
+        ' Create an instance of Exchange with dependency injection
+        Dim exchange As New Exchange(databaseManager, apiClient)
+
+        ' Create an instance of RequestHandler, injecting the Exchange object
+        Dim requestHandler As New RequestHandler(exchange)
+
+        Dim listener As New HttpListener()
+        listener.Prefixes.Add("http://localhost:7070/") ' Or your desired URL/port
+
+        listener.Start()
+        Console.WriteLine("Exchange server started. Press Enter to exit.")
+
+        Dim cancellationTokenSource As New CancellationTokenSource()
+
+        Dim serverTask As Task = Task.Run(Async Function()
+                                              While Not cancellationTokenSource.IsCancellationRequested
+                                                  Try
+                                                      Dim context As HttpListenerContext = listener.GetContext()
+                                                      Await Task.Run(Async Function()
+                                                                         Await requestHandler.HandleRequest(context)
+                                                                     End Function)
+                                                  Catch ex As HttpListenerException
+                                                      If ex.ErrorCode = 995 Then
+                                                          Exit While
+                                                      End If
+                                                      Console.WriteLine("Server error: " & ex.Message)
+                                                  Catch ex As Exception
+                                                      Console.WriteLine("Error getting context: " & ex.Message)
+                                                  End Try
+                                              End While
+                                          End Function, cancellationTokenSource.Token)
+
+        Console.ReadLine()
+
+        cancellationTokenSource.Cancel()
+        serverTask.Wait()
+        listener.Stop()
+        listener.Close()
+    End Sub
+End Module

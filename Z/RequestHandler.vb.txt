@@ -1,0 +1,205 @@
+Imports System
+Imports System.Collections.Generic
+Imports System.Net
+Imports System.Text.Json
+Imports System.Threading.Tasks
+Imports System.IO
+Imports System.Runtime
+Imports System.Net.Http
+Imports Newtonsoft.Json.Linq
+Imports Org.BouncyCastle.Asn1.Ocsp
+Imports Org.BouncyCastle.Utilities.Net
+
+Public Class RequestHandler
+
+    Private ReadOnly _exchange As Exchange
+    Private ReadOnly _jsonOptions As New JsonSerializerOptions With {.PropertyNameCaseInsensitive = True} ' Reuse options
+
+    Public Sub New(exchange As Exchange)
+        _exchange = exchange
+    End Sub
+
+    Public Async Function HandleRequest(context As HttpListenerContext) As Task
+        Dim request As HttpListenerRequest = context.Request
+        Dim response As HttpListenerResponse = context.Response
+        response.ContentType = "application/json"
+
+        Console.WriteLine("Incoming request: " & request.Url.PathAndQuery)
+
+        Try
+            Await DispatchRequest(context) ' Centralized request dispatching
+
+        Catch ex As Exception
+            SendJsonResponse(response, New With {.Error = ex.Message}, HttpStatusCode.InternalServerError)
+            Console.WriteLine("Error in HandleRequest: " & ex.Message)
+        End Try
+    End Function
+
+    Private Async Function DispatchRequest(context As HttpListenerContext) As Task
+        Dim request As HttpListenerRequest = context.Request
+
+        Select Case request.Url.PathAndQuery.ToLower()
+            Case "/register"
+                Await HandleRequestAsync(Of RegistrationData)(context, AddressOf _exchange.RegisterUser)
+            Case "/login"
+                Await HandleRequestAsync(Of LoginData)(context, AddressOf _exchange.LoginUser)
+            Case "/balance"
+                Await HandleBalance(context)
+            Case "/withdraw"
+                Await HandleAuthenticatedRequestAsync(Of WithdrawalData)(context, AddressOf _exchange.Withdraw)
+            Case "/deposit"
+                Await HandleAuthenticatedRequestAsync(context, AddressOf _exchange.GetDepositAddress)
+            Case Else
+                Await SendJsonResponse(context.Response, New With {.Error = "Not Found"}, HttpStatusCode.NotFound)
+        End Select
+    End Function
+
+
+    ' Generic handler for requests with a JSON body
+    Private Async Function HandleRequestAsync(Of T)(context As HttpListenerContext, action As Func(Of T, (Integer, String))) As Task
+        Dim request As HttpListenerRequest = context.Request
+        Dim response As HttpListenerResponse = context.Response
+
+        Try
+            Dim requestBody As String = Await ReadRequestBody(request)
+            Dim data As T = JsonSerializer.Deserialize(Of T)(requestBody, _jsonOptions)
+
+            If data Is Nothing Then
+                Await SendJsonResponse(response, New With {.Error = "Invalid request data"}, HttpStatusCode.BadRequest)
+                Return
+            End If
+
+            Dim result = action(data)
+            If result.Item1 > 0 Then ' Check if the operation was successful
+                Await SendJsonResponse(response, New With {.ApiKey = result.Item2}, HttpStatusCode.OK) ' Or whatever success data you return
+            Else
+                Await SendJsonResponse(response, New With {.Error = "Operation failed"}, HttpStatusCode.BadRequest) ' Generic error message
+            End If
+
+        Catch ex As Exception
+            SendJsonResponse(response, New With {.Error = ex.Message}, HttpStatusCode.InternalServerError)
+            Console.WriteLine("Error in HandleRequestAsync: " & ex.Message)
+        End Try
+    End Function
+
+    ' Generic handler for authenticated requests with JSON body
+    Private Async Function HandleAuthenticatedRequestAsync(Of T)(context As HttpListenerContext, action As Func(Of Integer, T, Task(Of Boolean))) As Task
+        Dim request As HttpListenerRequest = context.Request
+        Dim response As HttpListenerResponse = context.Response
+
+        Dim apiKey As String = GetApiKeyFromHeader(context)
+        Dim userId As Integer = GetUserIdFromApiKey(apiKey)
+
+        If userId = -1 Then
+            Await SendJsonResponse(response, New With {.Error = "Unauthorized"}, HttpStatusCode.Unauthorized)
+            Return
+        End If
+
+        Try
+            Dim requestBody As String = Await ReadRequestBody(request)
+            Dim data As T = JsonSerializer.Deserialize(Of T)(requestBody, _jsonOptions)
+
+            If data Is Nothing Then
+                Await SendJsonResponse(response, New With {.Error = "Invalid request data"}, HttpStatusCode.BadRequest)
+                Return
+            End If
+
+            Dim success As Boolean = Await action(userId, data) ' Await the Withdraw task
+
+            If success Then
+                Await SendJsonResponse(response, New With {.Message = "Success"}, HttpStatusCode.OK)
+            Else
+                Await SendJsonResponse(response, New With {.Error = "Withdrawal failed (insufficient balance or other issue)"}, HttpStatusCode.BadRequest)
+            End If
+
+        Catch ex As Exception
+            SendJsonResponse(response, New With {.Error = ex.Message}, HttpStatusCode.InternalServerError)
+            Console.WriteLine("Error in HandleAuthenticatedRequestAsync: " & ex.Message)
+        End Try
+    End Function
+
+
+    ' Overload for methods without a request body (like deposit)
+    Private Async Function HandleAuthenticatedRequestAsync(context As HttpListenerContext, action As Func(Of Integer, String)) As Task
+        Dim request As HttpListenerRequest = context.Request
+        Dim response As HttpListenerResponse = context.Response
+
+        Dim apiKey As String = GetApiKeyFromHeader(context)
+        Dim userId As Integer = GetUserIdFromApiKey(apiKey)
+
+        If userId = -1 Then
+            Await SendJsonResponse(response, New With {.Error = "Unauthorized"}, HttpStatusCode.Unauthorized)
+            Return
+        End If
+
+        Try
+            Dim result As String = action(userId) ' Call the action
+            Await SendJsonResponse(response, New With {.DepositAddress = result}, HttpStatusCode.OK) ' Or whatever data you are returning
+
+        Catch ex As Exception
+            SendJsonResponse(response, New With {.Error = ex.Message}, HttpStatusCode.InternalServerError)
+            Console.WriteLine("Error in HandleAuthenticatedRequestAsync (No Body): " & ex.Message)
+        End Try
+    End Function
+
+    Private Async Function HandleBalance(context As HttpListenerContext) As Task
+        Dim request As HttpListenerRequest = context.Request
+        Dim response As HttpListenerResponse = context.Response
+
+        Dim apiKey As String = GetApiKeyFromHeader(context)
+        Dim userId As Integer = GetUserIdFromApiKey(apiKey)
+
+        If userId = -1 Then
+            Await SendJsonResponse(response, New With {.Error = "Unauthorized"}, HttpStatusCode.Unauthorized)
+            Return
+        End If
+
+        Try
+            ' Get the token names
+            Dim tokenNames = _exchange.GetTokenNames()
+
+            ' Get the balances for each token from the database
+            Dim balances As New Dictionary(Of String, Decimal)
+            For Each tokenSymbol In tokenNames.Keys
+                balances(tokenSymbol) = _exchange.GetBalance(userId, tokenSymbol)
+            Next
+
+            ' Send the JSON response with the balances
+            Await SendJsonResponse(response, balances, HttpStatusCode.OK)
+
+        Catch ex As Exception
+            SendJsonResponse(response, New With {.Error = ex.Message}, HttpStatusCode.InternalServerError)
+            Console.WriteLine("Error in HandleBalance: " & ex.Message)
+        End Try
+    End Function
+
+
+    ' Helper Functions (unchanged)
+
+    Private Async Function ReadRequestBody(request As HttpListenerRequest) As Task(Of String)
+        Using reader As New StreamReader(request.InputStream)
+            Return Await reader.ReadToEndAsync()
+        End Using
+    End Function
+
+    Private Async Function SendJsonResponse(response As HttpListenerResponse, data As Object, statusCode As HttpStatusCode) As Task
+        response.StatusCode = CInt(statusCode)
+        Dim jsonString = JsonSerializer.Serialize(data)
+        Dim buffer = System.Text.Encoding.UTF8.GetBytes(jsonString)
+        response.ContentLength64 = buffer.Length
+        Await response.OutputStream.WriteAsync(buffer, 0, buffer.Length)
+        response.OutputStream.Close()
+    End Function
+
+    Private Function GetApiKeyFromHeader(context As HttpListenerContext) As String
+        Return context.Request.Headers.Get("X-API-Key")
+    End Function
+
+    Private Function GetUserIdFromApiKey(apiKey As String) As Integer
+        If String.IsNullOrEmpty(apiKey) OrElse Not _exchange._apiKeys.ContainsKey(apiKey) Then
+            Return -1 ' Indicate unauthorized
+        End If
+        Return _exchange._apiKeys(apiKey)
+    End Function
+
+End Class
