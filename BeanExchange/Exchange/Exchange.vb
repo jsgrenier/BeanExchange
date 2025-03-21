@@ -43,6 +43,7 @@ Public Class Exchange
         _buyOrders = New List(Of Order)()
         _sellOrders = New List(Of Order)()
         LoadOrders() ' Load orders from the database
+        EnsureUsdPrice()
     End Sub
     ' --- End of Order Book Data Structures ---
 
@@ -65,6 +66,15 @@ Public Class Exchange
                                         End Sub)
     End Sub
 
+    Private Sub EnsureUsdPrice()
+        Dim usdPrice = _databaseManager.GetLatestTokenPrice("USD")
+        If usdPrice Is Nothing OrElse usdPrice.Count = 0 Then
+            _databaseManager.UpdateTokenPrice("USD", 1D, DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+        ElseIf usdPrice.FirstOrDefault()?.Price <> 1D Then  ' Correctly access Price
+            _databaseManager.UpdateTokenPrice("USD", 1D, DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+        End If
+    End Sub
+
     'Update the token prices logic
     Private Sub UpdateTokenPrices()
         Try
@@ -72,6 +82,9 @@ Public Class Exchange
             Dim currentTimeStamp As Long = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
 
             For Each tokenSymbol In tokenNames.Keys
+                'Skip USD
+                If tokenSymbol.ToUpper() = "USD" Then Continue For
+
                 'Get price from latest token price
                 Dim price As Decimal = _databaseManager.GetLatestTokenPrice(tokenSymbol).FirstOrDefault()?.Price
                 _databaseManager.UpdateTokenPrice(tokenSymbol, price, currentTimeStamp)
@@ -359,6 +372,9 @@ Function(t) t("name").ToString()
     End Function
 
     Private Function CalculateMidPrice(tokenSymbol As String) As Decimal
+        ' If the token is USD, return 1.00 directly
+        If tokenSymbol.ToUpper() = "USD" Then Return 1D
+
         ' Get the best buy and sell orders for the given token.
         Dim bestBuyOrder = _buyOrders.OrderByDescending(Function(o) o.Price).ThenBy(Function(o) o.OrderId).FirstOrDefault(Function(o) o.TokenSymbol = tokenSymbol)
         Dim bestSellOrder = _sellOrders.OrderBy(Function(o) o.Price).ThenBy(Function(o) o.OrderId).FirstOrDefault(Function(o) o.TokenSymbol = tokenSymbol)
@@ -383,7 +399,6 @@ Function(t) t("name").ToString()
         Return (bestBuyOrder.Price + bestSellOrder.Price) / 2D
     End Function
 
-    '' New Method: PlaceOrder (MODIFIED)
     Public Function PlaceOrder(userId As Integer, tokenSymbol As String, isBuyOrder As Boolean, quantity As Decimal, price As Decimal?) As Guid
         'Basic Validations
         If quantity <= 0 Then
@@ -392,6 +407,12 @@ Function(t) t("name").ToString()
         If String.IsNullOrWhiteSpace(tokenSymbol) Then
             Throw New ArgumentException("TokenSymbol cannot be empty.")
         End If
+
+        ' --- PREVENT BUYING USD ---
+        If isBuyOrder AndAlso tokenSymbol.ToUpper() = "USD" Then
+            Throw New ArgumentException("Buying USD is not allowed.")
+        End If
+        ' --- END PREVENT BUYING USD ---
 
         ' Determine the order price
         Dim orderPrice As Decimal
@@ -403,8 +424,13 @@ Function(t) t("name").ToString()
             End If
         Else
             ' Market order (use current market price)
-            ' Instead of getting the last traded price, get the MID PRICE:
-            orderPrice = CalculateMidPrice(tokenSymbol)
+            ' If USD is involved, the price is 1.00.  Otherwise, calculate the mid-price.
+            If tokenSymbol.ToUpper() = "USD" Then
+                orderPrice = 1D
+            Else
+                orderPrice = CalculateMidPrice(tokenSymbol)
+            End If
+
             If orderPrice = 0 Then
                 orderPrice = 1 'Default price
             End If
